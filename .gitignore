@@ -1,0 +1,19 @@
+# Local environment
+.env
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+
+# Claude Code tooling/reference material (not project source)
+.claude/
+.agents/

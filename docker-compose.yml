@@ -1,0 +1,262 @@
+name: pedidos-microservicios
+
+networks:
+  # Carries RabbitMQ/Postgres traffic. Internal: no route to the outside world,
+  # so even a compromised container on this network can't exfiltrate data or
+  # pull tools from the internet. Anything that doesn't need to reach a
+  # database or the broker has no business being on it.
+  data-network:
+    driver: bridge
+    internal: true
+  # Backend services and the frontend attach here too, since a container needs
+  # at least one non-internal network for its `ports:` publishing to work.
+  app-network:
+    driver: bridge
+
+volumes:
+  orders_db_data:
+  inventory_db_data:
+  notifications_db_data:
+  rabbitmq_data:
+
+services:
+  orders-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${ORDERS_DB_NAME:-orders_db}
+      POSTGRES_USER: ${ORDERS_DB_USER:-orders_user}
+      POSTGRES_PASSWORD: ${ORDERS_DB_PASSWORD:-orders_pass}
+    volumes:
+      - orders_db_data:/var/lib/postgresql/data
+    networks:
+      - data-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${ORDERS_DB_USER:-orders_user} -d ${ORDERS_DB_NAME:-orders_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  inventory-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${INVENTORY_DB_NAME:-inventory_db}
+      POSTGRES_USER: ${INVENTORY_DB_USER:-inventory_user}
+      POSTGRES_PASSWORD: ${INVENTORY_DB_PASSWORD:-inventory_pass}
+    volumes:
+      - inventory_db_data:/var/lib/postgresql/data
+    networks:
+      - data-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${INVENTORY_DB_USER:-inventory_user} -d ${INVENTORY_DB_NAME:-inventory_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  notifications-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${NOTIFICATIONS_DB_NAME:-notifications_db}
+      POSTGRES_USER: ${NOTIFICATIONS_DB_USER:-notifications_user}
+      POSTGRES_PASSWORD: ${NOTIFICATIONS_DB_PASSWORD:-notifications_pass}
+    volumes:
+      - notifications_db_data:/var/lib/postgresql/data
+    networks:
+      - data-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${NOTIFICATIONS_DB_USER:-notifications_user} -d ${NOTIFICATIONS_DB_NAME:-notifications_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  rabbitmq:
+    image: rabbitmq:4-management-alpine
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-guest}
+    ports:
+      - "15672:15672" # management UI (local convenience only)
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    networks:
+      - data-network
+      - app-network
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_running"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  orders-service:
+    build:
+      context: ./orders-service
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    depends_on:
+      orders-db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      DB_HOST: orders-db
+      DB_PORT: 5432
+      DB_NAME: ${ORDERS_DB_NAME:-orders_db}
+      DB_USER: ${ORDERS_DB_USER:-orders_user}
+      DB_PASSWORD: ${ORDERS_DB_PASSWORD:-orders_pass}
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-guest}
+    ports:
+      - "8081:8081"
+    networks:
+      - data-network
+      - app-network
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8081/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 45s
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+        reservations:
+          memory: 256M
+
+  inventory-service:
+    build:
+      context: ./inventory-service
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    depends_on:
+      inventory-db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      DB_HOST: inventory-db
+      DB_PORT: 5432
+      DB_NAME: ${INVENTORY_DB_NAME:-inventory_db}
+      DB_USER: ${INVENTORY_DB_USER:-inventory_user}
+      DB_PASSWORD: ${INVENTORY_DB_PASSWORD:-inventory_pass}
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-guest}
+    ports:
+      - "8082:8082"
+    networks:
+      - data-network
+      - app-network
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8082/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 45s
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+        reservations:
+          memory: 256M
+
+  notification-service:
+    build:
+      context: ./notification-service
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    depends_on:
+      notifications-db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      DB_HOST: notifications-db
+      DB_PORT: 5432
+      DB_NAME: ${NOTIFICATIONS_DB_NAME:-notifications_db}
+      DB_USER: ${NOTIFICATIONS_DB_USER:-notifications_user}
+      DB_PASSWORD: ${NOTIFICATIONS_DB_PASSWORD:-notifications_pass}
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-guest}
+    ports:
+      - "8083:8083"
+    networks:
+      - data-network
+      - app-network
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8083/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 45s
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+        reservations:
+          memory: 256M
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_ORDERS_API_URL: http://localhost:8081
+        VITE_INVENTORY_API_URL: http://localhost:8082
+        VITE_NOTIFICATIONS_API_URL: http://localhost:8083
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/cache/nginx
+      - /var/run
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    depends_on:
+      - orders-service
+      - inventory-service
+      - notification-service
+    ports:
+      - "5173:8080"
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8080/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
