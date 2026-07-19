@@ -14,6 +14,7 @@ import com.pedidos.orders_service.dto.CreateOrderRequest;
 import com.pedidos.orders_service.exception.InvalidOrderStateException;
 import com.pedidos.orders_service.exception.OrderNotFoundException;
 import com.pedidos.orders_service.messaging.OrderEventPublisher;
+import com.pedidos.orders_service.metrics.OrderMetrics;
 import com.pedidos.orders_service.repository.OrderRepository;
 import java.math.BigDecimal;
 import java.util.List;
@@ -34,6 +35,9 @@ class OrderServiceTest {
     @Mock
     private OrderEventPublisher eventPublisher;
 
+    @Mock
+    private OrderMetrics orderMetrics;
+
     @InjectMocks
     private OrderService orderService;
 
@@ -43,7 +47,11 @@ class OrderServiceTest {
         UUID productId = UUID.randomUUID();
         CreateOrderRequest request = new CreateOrderRequest(
                 customerId, List.of(new CreateOrderItemRequest(productId, 3, new BigDecimal("10.00"))));
-        when(orderRepository.save(any(Order.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(orderRepository.save(any(Order.class))).thenAnswer(invocation -> {
+            Order order = invocation.getArgument(0);
+            order.setId(UUID.randomUUID());
+            return order;
+        });
 
         Order result = orderService.createOrder(request);
 

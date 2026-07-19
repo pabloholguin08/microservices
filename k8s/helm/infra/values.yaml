@@ -1,0 +1,85 @@
+# Demo credentials, same defaults as docker-compose's .env — fine for a local
+# kind cluster, not meant to survive contact with anything real.
+postgres:
+  image: postgres:16-alpine
+  storageSize: 1Gi
+  # kind ships the "standard" storageClass (rancher local-path-provisioner) by
+  # default; leave empty to fall back to the cluster's default class instead.
+  storageClassName: standard
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+  instances:
+    - name: orders-db
+      database: orders_db
+      username: orders_user
+      password: orders_pass
+    - name: inventory-db
+      database: inventory_db
+      username: inventory_user
+      password: inventory_pass
+    - name: notifications-db
+      database: notifications_db
+      username: notifications_user
+      password: notifications_pass
+
+rabbitmq:
+  image: rabbitmq:4-management-alpine
+  username: guest
+  password: guest
+  storageSize: 1Gi
+  storageClassName: standard
+  resources:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 512Mi
+  nodePorts:
+    # Mapped to host localhost:15672 by k8s/kind-config.yaml.
+    management: 30672
+
+prometheus:
+  image: prom/prometheus:v3.13.1
+  storageSize: 1Gi
+  storageClassName: standard
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 512Mi
+  # Mapped to host localhost:9090 by k8s/kind-config.yaml.
+  nodePort: 30090
+
+grafana:
+  image: grafana/grafana:12.4.5
+  adminUser: admin
+  adminPassword: admin
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+  # Mapped to host localhost:3000 by k8s/kind-config.yaml.
+  nodePort: 30300
+
+jaeger:
+  image: jaegertracing/all-in-one:1.76.0
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  # Mapped to host localhost:16686 by k8s/kind-config.yaml.
+  nodePort: 30686

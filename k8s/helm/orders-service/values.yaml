@@ -1,0 +1,53 @@
+# Built locally and loaded straight into the kind cluster (see k8s/README.md) —
+# there is no registry push in this local-only setup, so the tag is a fixed
+# "local" rather than a git sha/version, and pullPolicy stays IfNotPresent
+# instead of Always.
+image:
+  repository: orders-service
+  tag: local
+  pullPolicy: IfNotPresent
+
+# Safe to raise above 1: order.stock.reserved/rejected consumers are
+# idempotent (existence checks) and Order writes go through the ORM's normal
+# transactional path, so running several pods behind the Service is fine.
+replicaCount: 1
+
+service:
+  port: 8081
+  # Mapped to host localhost:8081 by k8s/kind-config.yaml, so the API is
+  # reachable at the same URL whether the stack runs on docker compose or kind.
+  nodePort: 30081
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 384Mi
+  limits:
+    cpu: "1"
+    memory: 512Mi
+
+env:
+  dbHost: orders-db
+  dbPort: 5432
+  dbName: orders_db
+  dbUser: orders_user
+  dbPasswordSecretName: orders-db-credentials
+  dbPasswordSecretKey: password
+  rabbitmqHost: rabbitmq
+  rabbitmqPort: 5672
+  rabbitmqUser: guest
+  rabbitmqPasswordSecretName: rabbitmq-credentials
+  rabbitmqPasswordSecretKey: password
+  otlpTracingEndpoint: http://jaeger:4318/v1/traces
+
+probes:
+  # Backed by Spring Boot's health groups (already enabled in
+  # application.yml via management.endpoint.health.probes.enabled), not the
+  # aggregate /actuator/health — readiness reflects "can serve traffic"
+  # (DB/broker reachable), liveness reflects "process isn't stuck".
+  liveness:
+    path: /actuator/health/liveness
+    initialDelaySeconds: 45
+  readiness:
+    path: /actuator/health/readiness
+    initialDelaySeconds: 20

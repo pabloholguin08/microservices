@@ -8,12 +8,14 @@ import com.pedidos.orders_service.dto.CreateOrderRequest;
 import com.pedidos.orders_service.exception.InvalidOrderStateException;
 import com.pedidos.orders_service.exception.OrderNotFoundException;
 import com.pedidos.orders_service.messaging.OrderEventPublisher;
+import com.pedidos.orders_service.metrics.OrderMetrics;
 import com.pedidos.orders_service.repository.OrderRepository;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.slf4j.MDC;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -26,6 +28,7 @@ public class OrderService {
 
     private final OrderRepository orderRepository;
     private final OrderEventPublisher eventPublisher;
+    private final OrderMetrics orderMetrics;
 
     @Transactional
     public Order createOrder(CreateOrderRequest request) {
@@ -43,9 +46,13 @@ public class OrderService {
         order.setTotalAmount(calculateTotal(order.getItems()));
 
         Order saved = orderRepository.save(order);
-        log.info("Order {} created for customer {} with {} item(s)", saved.getId(), saved.getCustomerId(), saved.getItems().size());
 
-        eventPublisher.publishOrderCreated(saved);
+        try (var ignored = MDC.putCloseable("orderId", saved.getId().toString())) {
+            log.info("Order {} created for customer {} with {} item(s)", saved.getId(), saved.getCustomerId(), saved.getItems().size());
+            orderMetrics.orderCreated();
+            eventPublisher.publishOrderCreated(saved);
+        }
+
         return saved;
     }
 
@@ -61,16 +68,19 @@ public class OrderService {
 
     @Transactional
     public Order cancelOrder(UUID orderId) {
-        Order order = getOrder(orderId);
-        if (order.getStatus() != OrderStatus.CREATED) {
-            throw new InvalidOrderStateException(orderId, order.getStatus());
+        try (var ignored = MDC.putCloseable("orderId", orderId.toString())) {
+            Order order = getOrder(orderId);
+            if (order.getStatus() != OrderStatus.CREATED) {
+                throw new InvalidOrderStateException(orderId, order.getStatus());
+            }
+
+            order.setStatus(OrderStatus.CANCELLED);
+            log.info("Order {} cancelled by customer request", orderId);
+            orderMetrics.orderCancelledByCustomer();
+
+            eventPublisher.publishOrderCancelled(order, "CANCELLED_BY_CUSTOMER");
+            return order;
         }
-
-        order.setStatus(OrderStatus.CANCELLED);
-        log.info("Order {} cancelled by customer request", orderId);
-
-        eventPublisher.publishOrderCancelled(order, "CANCELLED_BY_CUSTOMER");
-        return order;
     }
 
     private BigDecimal calculateTotal(List<OrderItem> items) {

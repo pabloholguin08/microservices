@@ -1,0 +1,30 @@
+# kind cluster config for running the full Pedidos stack locally.
+#
+# Every Service in the Helm charts that needs to be reached from the host
+# (the browser hitting the frontend, curl hitting the APIs, opening
+# Grafana/Prometheus/Jaeger) is a NodePort in the 30000-32767 range. kind
+# itself never publishes those ports to the host on its own — this
+# extraPortMappings block does that, one line per NodePort, mapped to the
+# same port number docker-compose already uses for the same service so the
+# URLs in docs/observability.md and the README work unchanged either way.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+  - role: control-plane
+    extraPortMappings:
+      - containerPort: 30081 # orders-service
+        hostPort: 8081
+      - containerPort: 30082 # inventory-service
+        hostPort: 8082
+      - containerPort: 30083 # notification-service
+        hostPort: 8083
+      - containerPort: 30173 # frontend
+        hostPort: 5173
+      - containerPort: 30672 # rabbitmq management UI
+        hostPort: 15672
+      - containerPort: 30090 # prometheus
+        hostPort: 9090
+      - containerPort: 30300 # grafana
+        hostPort: 3000
+      - containerPort: 30686 # jaeger UI
+        hostPort: 16686

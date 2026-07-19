@@ -1,0 +1,130 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: rabbitmq-credentials
+type: Opaque
+stringData:
+  username: {{ .Values.rabbitmq.username | quote }}
+  password: {{ .Values.rabbitmq.password | quote }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rabbitmq
+  labels:
+    app: rabbitmq
+spec:
+  # ClusterIP: AMQP (5672) and the per-object Prometheus metrics endpoint
+  # (15692) are only ever reached from inside the cluster.
+  selector:
+    app: rabbitmq
+  ports:
+    - name: amqp
+      port: 5672
+      targetPort: 5672
+    - name: prometheus
+      port: 15692
+      targetPort: 15692
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rabbitmq-management
+  labels:
+    app: rabbitmq
+spec:
+  # Split into its own NodePort Service so the management UI is reachable
+  # from the host without also exposing AMQP outside the cluster.
+  type: NodePort
+  selector:
+    app: rabbitmq
+  ports:
+    - name: management
+      port: 15672
+      targetPort: 15672
+      nodePort: {{ .Values.rabbitmq.nodePorts.management }}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: rabbitmq
+  labels:
+    app: rabbitmq
+spec:
+  serviceName: rabbitmq
+  replicas: 1
+  selector:
+    matchLabels:
+      app: rabbitmq
+  template:
+    metadata:
+      labels:
+        app: rabbitmq
+    spec:
+      securityContext:
+        fsGroup: 999
+      containers:
+        - name: rabbitmq
+          image: {{ .Values.rabbitmq.image }}
+          # Same trick as docker-compose: the management image ships the
+          # Prometheus plugin but doesn't enable it by default.
+          command:
+            - sh
+            - -c
+            - rabbitmq-plugins enable --offline rabbitmq_prometheus && rabbitmq-server
+          # No securityContext hardening beyond the pod-level fsGroup here —
+          # same call as docker-compose: rabbitmq-server's own startup
+          # (plugin enablement, directory ownership) needs more than a
+          # dropped-capabilities, non-root container allows, and fighting
+          # that isn't worth it for a broker that's otherwise on an internal
+          # ClusterIP.
+          ports:
+            - name: amqp
+              containerPort: 5672
+            - name: management
+              containerPort: 15672
+            - name: prometheus
+              containerPort: 15692
+          env:
+            - name: RABBITMQ_DEFAULT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: rabbitmq-credentials
+                  key: username
+            - name: RABBITMQ_DEFAULT_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: rabbitmq-credentials
+                  key: password
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/rabbitmq
+          # A plain TCP probe on the AMQP port, not `rabbitmq-diagnostics`:
+          # that CLI spins up its own short-lived Erlang node and does a
+          # distributed-Erlang handshake with the broker just to answer
+          # "are you running", which is expensive enough under a CPU-limited
+          # container that it was timing out and causing restart loops even
+          # though the broker itself logs a full startup in ~10s.
+          readinessProbe:
+            tcpSocket:
+              port: amqp
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: amqp
+            initialDelaySeconds: 20
+            periodSeconds: 20
+          resources:
+            {{- toYaml .Values.rabbitmq.resources | nindent 12 }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- if .Values.rabbitmq.storageClassName }}
+        storageClassName: {{ .Values.rabbitmq.storageClassName }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.rabbitmq.storageSize }}

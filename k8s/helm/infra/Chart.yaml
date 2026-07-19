@@ -1,0 +1,6 @@
+apiVersion: v2
+name: infra
+description: Shared infrastructure for the Pedidos distributed order system — Postgres (x3), RabbitMQ, Prometheus, Grafana, Jaeger
+type: application
+version: 0.1.0
+appVersion: "1.0.0"

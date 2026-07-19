@@ -1,0 +1,27 @@
+# Built locally and loaded straight into the kind cluster (see k8s/README.md).
+# Unlike the backend services, the API URLs below are NOT container env vars —
+# Vite inlines VITE_* variables into the JS bundle at `npm run build` time, so
+# they must be passed as Docker build args when the image is built (the setup
+# script does this), pointing at the same NodePort-mapped localhost URLs the
+# browser will actually use. Changing them here has no effect on an
+# already-built image.
+image:
+  repository: frontend
+  tag: local
+  pullPolicy: IfNotPresent
+
+replicaCount: 1
+
+service:
+  port: 8080
+  # Mapped to host localhost:5173 by k8s/kind-config.yaml, matching the
+  # docker-compose frontend port.
+  nodePort: 30173
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 64Mi
+  limits:
+    cpu: 500m
+    memory: 128Mi

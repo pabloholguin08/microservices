@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: orders-service
+  labels:
+    app: orders-service
+spec:
+  # NodePort rather than ClusterIP: this is a local kind cluster with no
+  # ingress controller installed, and kind-config.yaml maps this fixed
+  # nodePort to a host port so the API is reachable at a stable localhost URL.
+  type: NodePort
+  selector:
+    app: orders-service
+  ports:
+    - name: http
+      port: {{ .Values.service.port }}
+      targetPort: {{ .Values.service.port }}
+      nodePort: {{ .Values.service.nodePort }}

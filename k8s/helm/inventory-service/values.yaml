@@ -1,0 +1,50 @@
+# Built locally and loaded straight into the kind cluster (see k8s/README.md) —
+# there is no registry push in this local-only setup, so the tag is a fixed
+# "local" rather than a git sha/version, and pullPolicy stays IfNotPresent
+# instead of Always.
+image:
+  repository: inventory-service
+  tag: local
+  pullPolicy: IfNotPresent
+
+# Safe to raise above 1: the order.created consumer retries on optimistic-lock
+# conflicts and is duplicate-delivery safe (see
+# OrderCreatedConsumerIdempotencyTest), so concurrent pods can't oversell
+# stock or double-decrement it.
+replicaCount: 1
+
+service:
+  port: 8082
+  # Mapped to host localhost:8082 by k8s/kind-config.yaml, so the API is
+  # reachable at the same URL whether the stack runs on docker compose or kind.
+  nodePort: 30082
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 384Mi
+  limits:
+    cpu: "1"
+    memory: 512Mi
+
+env:
+  dbHost: inventory-db
+  dbPort: 5432
+  dbName: inventory_db
+  dbUser: inventory_user
+  dbPasswordSecretName: inventory-db-credentials
+  dbPasswordSecretKey: password
+  rabbitmqHost: rabbitmq
+  rabbitmqPort: 5672
+  rabbitmqUser: guest
+  rabbitmqPasswordSecretName: rabbitmq-credentials
+  rabbitmqPasswordSecretKey: password
+  otlpTracingEndpoint: http://jaeger:4318/v1/traces
+
+probes:
+  liveness:
+    path: /actuator/health/liveness
+    initialDelaySeconds: 45
+  readiness:
+    path: /actuator/health/readiness
+    initialDelaySeconds: 20

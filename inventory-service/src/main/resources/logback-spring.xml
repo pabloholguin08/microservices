@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <!--
+      Structured JSON logs, one line per event. traceId/spanId are populated
+      automatically by Micrometer Tracing's MDC observation handler; orderId
+      is pushed explicitly at the handful of call sites that own an order
+      (see MDC.putCloseable usage in OrderCreatedConsumer), so a single
+      order's story is grep/jq-able without opening Jaeger.
+    -->
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+            <includeMdcKeyName>traceId</includeMdcKeyName>
+            <includeMdcKeyName>spanId</includeMdcKeyName>
+            <includeMdcKeyName>orderId</includeMdcKeyName>
+            <customFields>{"service":"inventory-service"}</customFields>
+        </encoder>
+    </appender>
+
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+    </root>
+</configuration>
